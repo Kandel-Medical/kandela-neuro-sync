@@ -82,6 +82,7 @@
             width: 100%;
             background: radial-gradient(circle, #0c1a12 0%, #000000 90%);
             overflow: hidden;
+            cursor: crosshair;
         }
 
         canvas { width: 100%; height: 100%; display: block; }
@@ -226,6 +227,28 @@
         
         button:active { background: var(--text-color); color: #000; }
 
+        /* TIP SCREEN (FINAL) */
+        .tip-content {
+            text-align: left;
+            padding: 20px;
+            background: rgba(0, 20, 10, 0.9);
+            border: 1px solid var(--text-color);
+            border-radius: 8px;
+            max-width: 85%;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #ddd;
+        }
+        .tip-path {
+            color: var(--signal-locked);
+            font-weight: bold;
+            margin: 10px 0;
+            display: block;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 4px;
+        }
+
         /* RUÍDO */
         .noise-layer {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -243,7 +266,7 @@
     <canvas id="noise-canvas" class="noise-layer"></canvas>
 
     <div id="header">
-        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.8 (Calibrated)</span></div>
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v5.0 (Neuro-Touch)</span></div>
         <div id="status-badge" class="status-badge">NO SIGNAL</div>
     </div>
 
@@ -298,10 +321,10 @@
 
 <script>
 /**
- * KANDELA: SIGNAL-SYNC v3.8 (Calibrated)
- * - Physics Tuning: Level 8 adjusted to pass at 20Hz/5kHz.
- * - Adaptive Scoring: Lower penalty for stochastic signals (EMG/EEG).
- * - Noise Floor: Reduced HF noise on lvl 8 to allow clean trace at 5k.
+ * KANDELA: SIGNAL-SYNC v5.0 (Neuro-Touch Edition)
+ * - Final Version: Level 9 End Screen with Neurosoft Pro Tip.
+ * - Touch Gestures: Pinch (H/V) and Drag for direct signal control.
+ * - Physics: Calibrated for EMG/EEG realism (v4.1 physics core).
  */
 
 // --- SEGURANÇA ---
@@ -338,8 +361,8 @@ let currentLevel = 1;
 let mode = 'SYNTH'; 
 let signalType = 'SINE'; 
 
-// Knobs Defs
-const KNOB_DEFS = {
+// Knobs Defs (Mutável)
+let KNOB_DEFS = {
     amp:   { label: 'GAIN', min: 10, max: 200, step: 1, unit: ' uV' },
     freq:  { label: 'FREQ', min: 1, max: 50, step: 0.5, unit: ' Hz' },
     phase: { label: 'FASE', min: 0, max: 100, step: 1, unit: ' ms' },
@@ -353,6 +376,91 @@ let params = { amp: 50, freq: 10, phase: 0, hpf: 0.1, lpf: 5000, notch: false };
 let target = { amp: 50, freq: 10, phase: 0, harmonics: 0 };
 let noiseConfig = { drift: 0, highFreq: 0, hum: 0 }; 
 let slotAssignment = { 1: 'amp', 2: 'freq', 3: 'phase' };
+
+// --- GESTURE CONTROLLER (PINCH & DRAG) ---
+let gestureState = {
+    active: false,
+    startDistH: 0,
+    startDistV: 0,
+    startX: 0,
+    startVals: {}
+};
+
+canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
+canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
+canvas.addEventListener('touchend', () => { gestureState.active = false; }, {passive: false});
+
+function handleTouchStart(e) {
+    if (!isPlaying) return;
+    e.preventDefault();
+    gestureState.active = true;
+    gestureState.startVals = { ...params }; // Snapshot valores atuais
+
+    if (e.touches.length === 1) {
+        // Drag (Fase)
+        gestureState.startX = e.touches[0].clientX;
+    } 
+    else if (e.touches.length === 2) {
+        // Pinch
+        gestureState.startDistH = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+        gestureState.startDistV = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
+    }
+}
+
+function handleTouchMove(e) {
+    if (!gestureState.active) return;
+    e.preventDefault();
+
+    // 1 Dedo: Fase (Arrastar)
+    if (e.touches.length === 1) {
+        // Só funciona se FASE estiver no slot 3 e habilitado
+        if (slotAssignment[3] === 'phase' && !slots[3].grp.classList.contains('knob-disabled')) {
+            const currentX = e.touches[0].clientX;
+            const delta = currentX - gestureState.startX;
+            let newVal = gestureState.startVals.phase + (delta * 0.5); // Sensibilidade
+            params.phase = clamp(newVal, KNOB_DEFS.phase.min, KNOB_DEFS.phase.max);
+            updateKnobVisual(3, 'phase');
+        }
+    }
+    // 2 Dedos: Pinch
+    else if (e.touches.length === 2) {
+        const distH = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+        const distV = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
+
+        // Horizontal Pinch -> Freq ou LPF (Slot 2)
+        const paramH = slotAssignment[2];
+        if (!slots[2].grp.classList.contains('knob-disabled')) {
+            const deltaH = distH - gestureState.startDistH;
+            const def = KNOB_DEFS[paramH];
+            const sensitivity = (def.max - def.min) / 500; 
+            let newVal = gestureState.startVals[paramH] + (deltaH * sensitivity);
+            // Snap se necessário
+            if(def.step) newVal = Math.round(newVal / def.step) * def.step;
+            params[paramH] = clamp(newVal, def.min, def.max);
+            updateKnobVisual(2, paramH);
+        }
+
+        // Vertical Pinch -> Amp ou HPF (Slot 1)
+        const paramV = slotAssignment[1];
+        if (!slots[1].grp.classList.contains('knob-disabled')) {
+            const deltaV = gestureState.startDistV - distV; // Invertido (abrir aumenta)
+            const def = KNOB_DEFS[paramV];
+            const sensitivity = (def.max - def.min) / 500;
+            let newVal = gestureState.startVals[paramV] + (deltaV * sensitivity); // Abrir = diminuir valor visualmente? Não, abrir = aumentar
+            // Ajuste de direção: Abrir dedos (distV aumenta) -> deltaV negativo. 
+            // Queremos aumentar valor ao abrir dedos.
+            newVal = gestureState.startVals[paramV] + ((distV - gestureState.startDistV) * sensitivity);
+            
+            if(def.step) newVal = Math.round(newVal / def.step) * def.step;
+            params[paramV] = clamp(newVal, def.min, def.max);
+            updateKnobVisual(1, paramV);
+        }
+    }
+}
+
+function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+}
 
 // --- RUÍDO ---
 function initNoise() {
@@ -385,7 +493,7 @@ function showBriefing(lvl) {
     }
     if (lvl === 9) { 
         title = "ELETROENCEFALO"; 
-        instr = "Sinal EEG (Lento).<br>Alvo: <strong>HPF ~1Hz</strong> | <strong>LPF ~70Hz</strong>.<br>Estabilize a linha de base."; 
+        instr = "Sinal EEG (Lento).<br>Alvo: <strong>HPF 1-5 Hz</strong> | <strong>LPF 75-100 Hz</strong>.<br>Ligue o NOTCH para remover 60Hz."; 
     }
     
     modal.innerHTML = `
@@ -393,9 +501,28 @@ function showBriefing(lvl) {
         <p style="max-width: 80%; margin: 20px 0; color: #aaa;">${instr}</p>
         <div id="level-info" style="color: #fff; margin-bottom: 20px; font-weight: bold; border: 1px solid #333; padding: 10px;">${getLevelName(lvl)}</div>
         <button id="btn-start">INICIAR</button>
-        <div style="margin-top: 20px; font-size: 0.7rem; color: #444;">v3.8 (Calibrated)</div>
+        <div style="margin-top: 20px; font-size: 0.7rem; color: #444;">v5.0 (Neuro-Touch)</div>
     `;
     document.getElementById('btn-start').onclick = () => startLevel(lvl);
+}
+
+// TELA FINAL DE DICA (Neurosoft Pro Tip)
+function showVictoryScreen() {
+    const modal = document.getElementById('modal-overlay');
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <h1 style="color:#00ff9d; font-size: 2.5rem; margin-bottom:10px;">EXCELENTE!</h1>
+        <div class="tip-content">
+            <strong>DICA ESPECIALISTA:</strong><br><br>
+            Caso tenha dúvidas de qual filtro é o melhor para determinada técnica, consulte os ajustes padrão no software Neurosoft:
+            <span class="tip-path">
+                Configurar → Modelos de Teste → Personalizar → [Teste] → Hardware → Litebox
+            </span>
+            Lá você pode consultar os filtros, margem de entrada e taxa de amostragem ideais.
+        </div>
+        <button id="btn-restart">REINICIAR SISTEMA</button>
+    `;
+    document.getElementById('btn-restart').onclick = () => showBriefing(1);
 }
 
 function getLevelName(lvl) {
@@ -421,10 +548,13 @@ function startLevel(lvl) {
     currentLevel = lvl;
     resetUIState(); 
 
-    // Defaults
     params = { amp: 50, freq: 10, phase: 0, hpf: 0.1, lpf: 5000, notch: false };
     noiseConfig = { drift: 0, highFreq: 0, hum: 0 };
     signalType = 'SINE'; 
+    
+    // Reset Knob Ranges
+    KNOB_DEFS.hpf.min = 0.1; KNOB_DEFS.hpf.max = 50; KNOB_DEFS.hpf.step = 0.1;
+    KNOB_DEFS.lpf.min = 30; KNOB_DEFS.lpf.max = 10000; KNOB_DEFS.lpf.step = 10;
 
     if (lvl <= 3) {
         mode = 'SYNTH';
@@ -446,29 +576,20 @@ function setupSynthLevel(lvl) {
     target.freq = 5; target.amp = 100; target.phase = 50; target.harmonics = 0;
 
     if (lvl === 1) {
-        target.amp = randomRange(60, 140);
-        target.phase = randomRange(20, 80);
-        target.freq = 5; 
-        params.freq = target.freq; 
-        disableSlot(2); 
+        target.amp = randomRange(60, 140); target.phase = randomRange(20, 80); target.freq = 5; 
+        params.freq = target.freq; disableSlot(2); 
     } 
     else if (lvl === 2) {
-        target.amp = 100; 
-        target.freq = randomRange(5, 15);
-        target.phase = randomRange(20, 80);
-        params.amp = target.amp; 
-        disableSlot(1); 
+        target.amp = 100; target.freq = randomRange(5, 15); target.phase = randomRange(20, 80);
+        params.amp = target.amp; disableSlot(1); 
     } 
     else {
-        target.freq = randomRange(3, 15); 
-        target.amp = randomRange(50, 150); 
-        target.phase = randomRange(10, 90);
+        target.freq = randomRange(3, 15); target.amp = randomRange(50, 150); target.phase = randomRange(10, 90);
     }
 }
 
 function setupFilterLevel(lvl) {
     slotAssignment = { 1: 'hpf', 2: 'lpf', 3: 'notch' };
-    
     target = { freq: 10, amp: 80, phase: 0, harmonics: 0.5 };
     
     if (lvl === 4) {
@@ -479,40 +600,31 @@ function setupFilterLevel(lvl) {
     else if (lvl === 5) {
         noiseConfig.hum = 50; noiseConfig.drift = 20;
         params.notch = false;
-        disableSlot(2); // Disable LPF
+        disableSlot(2); 
     }
     else if (lvl === 6) {
         noiseConfig.drift = 50; noiseConfig.highFreq = 40; noiseConfig.hum = 60;
     }
     else if (lvl === 7) {
-        target.harmonics = 0.8; 
-        noiseConfig.drift = 80; noiseConfig.highFreq = 60; noiseConfig.hum = 80;
+        target.harmonics = 0.8; noiseConfig.drift = 80; noiseConfig.highFreq = 60; noiseConfig.hum = 80;
     }
     else if (lvl === 8) {
-        // EMG REALISTA - AJUSTE v3.8
-        signalType = 'EMG';
-        target.amp = 70;
-        
-        // Ruídos
-        noiseConfig.drift = 30; 
-        noiseConfig.highFreq = 5; // Reduzido de 10 para facilitar lock no sweet spot
-        
+        signalType = 'EMG'; target.amp = 70;
+        noiseConfig.drift = 30; noiseConfig.highFreq = 5; 
         disableSlot(3); 
-        
-        // Start
-        params.hpf = 0.1; 
-        params.lpf = 100; 
+        params.hpf = 0.1; params.lpf = 100; 
     }
     else if (lvl === 9) {
-        // EEG REALISTA
         signalType = 'EEG';
         target.amp = 100;
-        noiseConfig.drift = 100; 
-        noiseConfig.hum = 60; 
-        noiseConfig.highFreq = 30; 
+        noiseConfig.drift = 120; 
+        noiseConfig.hum = 80; 
+        noiseConfig.highFreq = 25; 
         
-        params.hpf = 10; 
-        params.lpf = 5000; 
+        KNOB_DEFS.lpf.min = 35; KNOB_DEFS.lpf.max = 500; KNOB_DEFS.lpf.step = 5;
+        KNOB_DEFS.hpf.min = 0.1; KNOB_DEFS.hpf.max = 15.0; KNOB_DEFS.hpf.step = 0.1;
+        
+        params.hpf = 0.1; params.lpf = 500; params.notch = false; 
     }
     
     params.amp = target.amp; 
@@ -555,13 +667,13 @@ function updateKnobVisual(slotIdx, paramName) {
     slots[slotIdx].ind.style.transform = `translate(-50%, -100%) rotate(${deg}deg)`;
     
     let txt = val;
-    if (paramName === 'lpf') txt = (val < 1000) ? Math.round(val) : (val/1000).toFixed(1) + 'k';
+    if (paramName === 'lpf') txt = (val >= 1000) ? (val/1000).toFixed(1) + 'k' : Math.round(val);
     else if (paramName === 'hpf') txt = val.toFixed(1);
     else txt = Math.round(val);
     slots[slotIdx].val.innerText = txt + def.unit;
 }
 
-// --- INPUTS ---
+// --- INPUTS (KNOBS SWIPE) ---
 [1, 2, 3].forEach(i => {
     const el = slots[i].el;
     let startX = 0; let startVal = 0;
@@ -612,7 +724,7 @@ if(slots[3].switch) slots[3].switch.addEventListener('click', () => {
     }
 });
 
-// --- LOOP & PHYSICS v3.8 ---
+// --- LOOP & PHYSICS v4.1 ---
 function loop() {
     if (!isPlaying) { window.animationFrameId = null; return; }
     window.animationFrameId = requestAnimationFrame(loop);
@@ -635,8 +747,6 @@ function loop() {
     let signalAmp = target.amp || 50;
     let errorRatio = avgDiff / signalAmp; 
     
-    // AJUSTE DE PONTUAÇÃO
-    // Sinais biológicos são mais perdoáveis
     let penaltyFactor = (signalType === 'EMG' || signalType === 'EEG') ? 3.0 : 5.0;
     let accuracy = Math.max(0, 100 - (errorRatio * 100 * penaltyFactor)); 
 
@@ -692,24 +802,16 @@ function applyPhysics(t, signalP, noiseC, filterP, type) {
     let y = generateSignal(t, signalP, type);
     
     if (type === 'EMG') {
-        // EMG Penalty: Se LPF < 4000, perde sinal. 
-        // Em 5000 é seguro.
-        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 4000)); 
-        y *= (1 - lpfPenalty);
-        
-        let hpfPenalty = Math.max(0, (filterP.hpf - 100) / 100); 
-        y *= Math.max(0, 1 - hpfPenalty);
+        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 4000)); y *= (1 - lpfPenalty);
+        let hpfPenalty = Math.max(0, (filterP.hpf - 100) / 100); y *= Math.max(0, 1 - hpfPenalty);
     }
-    
     if (type === 'EEG') {
-        let hpfPenalty = Math.min(1, Math.max(0, (filterP.hpf - 1) / 5)); 
+        let hpfPenalty = Math.max(0, (filterP.hpf - 5) / 5); 
         y *= (1 - hpfPenalty);
     }
 
     let driftAmp = noiseC.drift * Math.sin(t * 0.3 + time);
-    // HPF 20Hz limpa completamente o drift (fator 20.0)
-    // Se filterP.hpf = 20, hpfClean = 1.0
-    let hpfClean = Math.min(1, filterP.hpf / 20.0); 
+    let hpfClean = Math.min(1, filterP.hpf / 1.5); 
     y += driftAmp * (1 - hpfClean);
 
     let noiseVal = noiseC.highFreq * Math.sin(t * 50 + Math.random());
@@ -720,9 +822,17 @@ function applyPhysics(t, signalP, noiseC, filterP, type) {
     }
 
     let lpfClean = 0;
-    if (type === 'EEG') lpfClean = Math.max(0, 1 - (filterP.lpf / 100)); 
-    else lpfClean = Math.max(0, 1 - (filterP.lpf / 12000)); 
-    
+    if (type === 'EEG') {
+        if (filterP.lpf < 75) {
+            lpfClean = 1.0; 
+        } else if (filterP.lpf <= 200) {
+            lpfClean = Math.max(0, 1 - ((filterP.lpf - 75) / 200)); 
+        } else {
+            lpfClean = 0;
+        }
+    } else {
+        lpfClean = Math.max(0, 1 - (filterP.lpf / 12000)); 
+    }
     y += noiseVal * (1 - lpfClean);
 
     if (!filterP.notch && noiseC.hum > 0) {
@@ -756,16 +866,21 @@ function winLevel() {
     isPlaying = false;
     statusBadge.innerText = "SINAL CAPTURADO";
     if(window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-    setTimeout(() => {
-        const modal = document.getElementById('modal-overlay');
-        modal.style.display = 'flex';
-        modal.innerHTML = `
-            <h1 style="color:#00ff9d; font-size: 3rem; margin:0;">SUCESSO</h1>
-            <p style="color:#fff; margin-bottom:30px;">Sinal calibrado.</p>
-            <button id="btn-next-level">PRÓXIMO NÍVEL</button>
-        `;
-        document.getElementById('btn-next-level').onclick = () => showBriefing(currentLevel + 1);
-    }, 500);
+    
+    if (currentLevel === 9) {
+        setTimeout(showVictoryScreen, 500);
+    } else {
+        setTimeout(() => {
+            const modal = document.getElementById('modal-overlay');
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+                <h1 style="color:#00ff9d; font-size: 3rem; margin:0;">SUCESSO</h1>
+                <p style="color:#fff; margin-bottom:30px;">Sinal calibrado.</p>
+                <button id="btn-next-level">PRÓXIMO NÍVEL</button>
+            `;
+            document.getElementById('btn-next-level').onclick = () => showBriefing(currentLevel + 1);
+        }, 500);
+    }
 }
 
 function resize() {

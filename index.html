@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kandela: Signal-Sync</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #080808;
+            --grid-color: #1a4030;
+            --signal-ghost: rgba(0, 255, 157, 0.25);
+            --signal-active: #ff3366;
+            --signal-locked: #00ff9d;
+            --ui-bg: #111;
+            --knob-color: #222;
+            --knob-indicator: #00ff9d;
+            --text-color: #00ff9d;
+            --led-off: #331111;
+            --led-on: #ff0000;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        /* SEGURANÇA */
+        #access-denied {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 9999;
+            flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; padding: 20px;
+        }
+        #access-denied h1 { color: #ff0055; border-bottom: 2px solid #ff0055; }
+
+        /* HEADER */
+        #header {
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #000;
+            border-bottom: 1px solid var(--grid-color);
+            height: 50px;
+            z-index: 30;
+        }
+
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 4px 8px;
+            border: 1px solid var(--signal-active);
+            color: var(--signal-active);
+            border-radius: 4px;
+            transition: all 0.3s;
+            min-width: 100px;
+            text-align: center;
+        }
+        
+        .status-badge.locked {
+            border-color: var(--signal-locked);
+            color: var(--bg-color);
+            background: var(--signal-locked);
+            box-shadow: 0 0 10px var(--signal-locked);
+        }
+
+        /* OSCILOSCÓPIO */
+        #scope-container {
+            position: relative;
+            flex-grow: 1;
+            width: 100%;
+            background: radial-gradient(circle, #0c1a12 0%, #000000 90%);
+            overflow: hidden;
+        }
+
+        canvas { width: 100%; height: 100%; display: block; }
+
+        #scope-container::after {
+            content: " ";
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* PAINEL DE CONTROLE */
+        #control-panel {
+            background: var(--ui-bg);
+            padding: 15px;
+            border-top: 2px solid var(--grid-color);
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start; 
+            height: 190px;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.8);
+            z-index: 30;
+        }
+
+        .knob-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            width: 30%;
+            transition: opacity 0.3s;
+        }
+
+        .knob-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            height: 20px;
+        }
+
+        .knob-value {
+            font-size: 0.85rem;
+            color: var(--text-color);
+            margin-top: 5px;
+        }
+
+        /* KNOB UI */
+        .knob-outer {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: conic-gradient(#222 0%, #333 100%);
+            box-shadow: inset 0 0 10px #000, 0 5px 15px rgba(0,0,0,0.5);
+            position: relative;
+            cursor: ns-resize;
+            border: 1px solid #444;
+        }
+
+        .knob-outer::before {
+            content: '';
+            position: absolute;
+            top: 10%; left: 10%; right: 10%; bottom: 10%;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+
+        .knob-indicator {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 4px; height: 35%;
+            background: var(--knob-indicator);
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%) rotate(0deg);
+            border-radius: 2px;
+            box-shadow: 0 0 5px var(--knob-indicator);
+            pointer-events: none;
+        }
+
+        .knob-disabled { opacity: 0.2; pointer-events: none; filter: grayscale(100%); }
+
+        /* TOGGLE SWITCH (NOTCH) */
+        .toggle-container {
+            width: 70px; height: 70px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: #1a1a1a; border-radius: 8px;
+            border: 1px solid #333;
+            box-shadow: inset 0 0 10px #000;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .toggle-lever {
+            width: 20px; height: 40px;
+            background: #444;
+            border-radius: 4px;
+            position: relative;
+            transition: background 0.2s;
+        }
+        
+        .toggle-active .toggle-lever { background: var(--text-color); box-shadow: 0 0 10px var(--text-color); }
+        
+        .led {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--led-off);
+            margin-bottom: 8px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+            transition: all 0.2s;
+        }
+        
+        .toggle-active .led { background: var(--text-color); box-shadow: 0 0 5px var(--text-color); }
+
+        /* MODAL */
+        #modal-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            backdrop-filter: blur(5px);
+        }
+        
+        button {
+            background: rgba(0, 255, 157, 0.1);
+            border: 1px solid var(--text-color);
+            color: var(--text-color);
+            padding: 15px 40px;
+            font-family: inherit;
+            font-size: 1.2rem;
+            cursor: pointer;
+            margin-top: 20px;
+            text-transform: uppercase;
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.2);
+            transition: all 0.2s;
+        }
+        
+        button:active { background: var(--text-color); color: #000; }
+
+        /* RUÍDO */
+        .noise-layer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0.1; pointer-events: none; z-index: 20;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="access-denied">
+        <h1>🚫 ACESSO NEGADO</h1>
+        <p>Acesso permitido apenas via Kandela @ Telegram.</p>
+    </div>
+
+    <canvas id="noise-canvas" class="noise-layer"></canvas>
+
+    <div id="header">
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.3 (Master)</span></div>
+        <div id="status-badge" class="status-badge">NO SIGNAL</div>
+    </div>
+
+    <div id="scope-container">
+        <canvas id="scope"></canvas>
+    </div>
+
+    <div id="control-panel">
+        
+        <!-- SLOT 1 -->
+        <div class="knob-group" id="group-slot1">
+            <div class="knob-label" id="lbl-slot1">GAIN</div>
+            <div id="container-knob-1" style="display:block;">
+                <div class="knob-outer" id="knob-slot1">
+                    <div class="knob-indicator" id="ind-slot1"></div>
+                </div>
+            </div>
+            <div class="knob-value" id="val-slot1">50 uV</div>
+        </div>
+
+        <!-- SLOT 2 -->
+        <div class="knob-group" id="group-slot2">
+            <div class="knob-label" id="lbl-slot2">FREQ</div>
+            <div id="container-knob-2" style="display:block;">
+                <div class="knob-outer" id="knob-slot2">
+                    <div class="knob-indicator" id="ind-slot2"></div>
+                </div>
+            </div>
+            <div class="knob-value" id="val-slot2">10 Hz</div>
+        </div>
+
+        <!-- SLOT 3 -->
+        <div class="knob-group" id="group-slot3">
+            <div class="knob-label" id="lbl-slot3">SHIFT</div>
+            <div id="container-knob-3" style="display:block;">
+                <div class="knob-outer" id="knob-slot3">
+                    <div class="knob-indicator" id="ind-slot3"></div>
+                </div>
+            </div>
+            <div id="container-switch-3" style="display:none;">
+                <div class="toggle-container" id="switch-notch">
+                    <div class="led"></div>
+                    <div class="toggle-lever"></div>
+                </div>
+            </div>
+            <div class="knob-value" id="val-slot3">0 ms</div>
+        </div>
+
+    </div>
+
+    <div id="modal-overlay"></div>
+
+<script>
+/**
+ * KANDELA: SIGNAL-SYNC v3.3 (Master Class)
+ * - Fix: Reset de estado UI correto (knobs travados ficam travados)
+ * - Nível 7: Master Class (Todos os filtros + Ruído Extremo)
+ */
+
+// --- SEGURANÇA ---
+// (function() {
+//     const tg = window.Telegram.WebApp;
+//     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+//     const isTelegram = tg.initData && tg.initData.length > 0;
+//     if (!isTelegram && !isLocal) {
+//         document.getElementById('access-denied').style.display = 'flex';
+//         throw new Error("Access Denied");
+//     }
+//     if(isTelegram) tg.expand();
+// })();
+
+// --- CONFIGURAÇÃO ---
+const canvas = document.getElementById('scope');
+const ctx = canvas.getContext('2d');
+const noiseCanvas = document.getElementById('noise-canvas');
+const noiseCtx = noiseCanvas.getContext('2d');
+const statusBadge = document.getElementById('status-badge');
+
+// UI Maps
+const slots = {
+    1: { el: document.getElementById('knob-slot1'), ind: document.getElementById('ind-slot1'), val: document.getElementById('val-slot1'), lbl: document.getElementById('lbl-slot1'), grp: document.getElementById('group-slot1'), contKnob: document.getElementById('container-knob-1') },
+    2: { el: document.getElementById('knob-slot2'), ind: document.getElementById('ind-slot2'), val: document.getElementById('val-slot2'), lbl: document.getElementById('lbl-slot2'), grp: document.getElementById('group-slot2'), contKnob: document.getElementById('container-knob-2') },
+    3: { el: document.getElementById('knob-slot3'), ind: document.getElementById('ind-slot3'), val: document.getElementById('val-slot3'), lbl: document.getElementById('lbl-slot3'), grp: document.getElementById('group-slot3'), contKnob: document.getElementById('container-knob-3'), contSwitch: document.getElementById('container-switch-3'), switch: document.getElementById('switch-notch') }
+};
+
+// Estado
+let time = 0;
+let isPlaying = false;
+let lockTimer = 0;
+let currentLevel = 1;
+let mode = 'SYNTH'; 
+
+// Knobs Defs
+const KNOB_DEFS = {
+    amp:   { label: 'GAIN', min: 10, max: 200, step: 1, unit: ' uV' },
+    freq:  { label: 'FREQ', min: 1, max: 50, step: 0.5, unit: ' Hz' },
+    phase: { label: 'LATENCY', min: 0, max: 100, step: 1, unit: ' ms' },
+    hpf:   { label: 'HP FILTER', min: 0.1, max: 50, step: 0.5, unit: ' Hz' },
+    lpf:   { label: 'LP FILTER', min: 100, max: 10000, step: 100, unit: ' Hz' },
+    notch: { label: 'NOTCH 60Hz', type: 'switch' }
+};
+
+// Parâmetros
+let params = { amp: 50, freq: 10, phase: 0, hpf: 0.1, lpf: 10000, notch: false };
+let target = { amp: 50, freq: 10, phase: 0, harmonics: 0 };
+let noiseConfig = { drift: 0, highFreq: 0, hum: 0 }; 
+let slotAssignment = { 1: 'amp', 2: 'freq', 3: 'phase' };
+
+// --- RUÍDO ---
+function initNoise() {
+    noiseCanvas.width = 256; noiseCanvas.height = 256;
+    const w = noiseCanvas.width; const h = noiseCanvas.height;
+    const idata = noiseCtx.createImageData(w, h);
+    const buffer32 = new Uint32Array(idata.data.buffer);
+    for (let i = 0; i < buffer32.length; i++) buffer32[i] = (Math.random() < 0.5) ? 0xffffffff : 0x00000000;
+    noiseCtx.putImageData(idata, 0, 0);
+}
+function animateNoise() {
+    const rx = Math.floor(Math.random() * 50);
+    const ry = Math.floor(Math.random() * 50);
+    noiseCanvas.style.transform = `translate(-${rx}px, -${ry}px)`;
+    requestAnimationFrame(animateNoise);
+}
+
+// --- ENGINE DE NÍVEIS ---
+
+function showBriefing(lvl) {
+    const modal = document.getElementById('modal-overlay');
+    modal.style.display = 'flex';
+    let title = (lvl >= 4) ? "FILTRAGEM" : "CALIBRAÇÃO";
+    let instr = (lvl >= 4) ? "Use os filtros para LIMPAR o ruído." : "Sincronize a onda VERMELHA.";
+    if (lvl === 7) { title = "MASTER CLASS"; instr = "Condições críticas: Sinal sujo + Harmônicas."; }
+    
+    modal.innerHTML = `
+        <h1 style="margin:0; font-size: 2rem; color: var(--text-color); text-shadow: 0 0 10px var(--text-color);">${title}</h1>
+        <p style="max-width: 80%; margin: 20px 0; color: #aaa;">${instr}</p>
+        <div id="level-info" style="color: #fff; margin-bottom: 20px; font-weight: bold; border: 1px solid #333; padding: 10px;">${getLevelName(lvl)}</div>
+        <button id="btn-start">INICIAR</button>
+    `;
+    document.getElementById('btn-start').onclick = () => startLevel(lvl);
+}
+
+function getLevelName(lvl) {
+    if(lvl === 1) return "NÍVEL 1: Ganho (Fixo) & Latência";
+    if(lvl === 2) return "NÍVEL 2: Frequência & Latência";
+    if(lvl === 3) return "NÍVEL 3: Calibração Completa";
+    if(lvl === 4) return "NÍVEL 4: High & Low Pass (Drift)";
+    if(lvl === 5) return "NÍVEL 5: Notch (Rede Elétrica)";
+    if(lvl === 6) return "NÍVEL 6: Filtros Combinados";
+    if(lvl === 7) return "NÍVEL 7: Master Class";
+    return "NÍVEL " + lvl;
+}
+
+// Função Auxiliar para Resetar UI antes de aplicar regras do nível
+function resetUIState() {
+    for (let i = 1; i <= 3; i++) {
+        slots[i].grp.classList.remove('knob-disabled');
+    }
+}
+
+function startLevel(lvl) {
+    currentLevel = lvl;
+    resetUIState(); // Limpa estados anteriores (FIX DO BUG)
+
+    // Reset Geral de Parâmetros
+    params = { amp: 50, freq: 10, phase: 0, hpf: 0.1, lpf: 10000, notch: false };
+    noiseConfig = { drift: 0, highFreq: 0, hum: 0 };
+
+    if (lvl <= 3) {
+        mode = 'SYNTH';
+        setupSynthLevel(lvl);
+    } else {
+        mode = 'FILTER';
+        setupFilterLevel(lvl);
+    }
+
+    updateUI(); // Atualiza visuais
+    isPlaying = true;
+    lockTimer = 0;
+    document.getElementById('modal-overlay').style.display = 'none';
+    if (!window.animationFrameId) loop();
+}
+
+function setupSynthLevel(lvl) {
+    slotAssignment = { 1: 'amp', 2: 'freq', 3: 'phase' };
+    
+    // Base Target
+    target.freq = 5; target.amp = 100; target.phase = 50; target.harmonics = 0;
+
+    if (lvl === 1) {
+        // Nível 1: Ganho + Fase (Frequência travada e IGUAL)
+        target.amp = randomRange(60, 140);
+        target.phase = randomRange(20, 80);
+        target.freq = 5; 
+        
+        params.freq = target.freq; // Auto-sync
+        disableSlot(2); // Trava knob de freq
+    } 
+    else if (lvl === 2) {
+        // Nível 2: Frequência + Fase (Ganho travado e IGUAL)
+        target.amp = 100; 
+        target.freq = randomRange(5, 15);
+        target.phase = randomRange(20, 80);
+        
+        params.amp = target.amp; // Auto-sync
+        disableSlot(1); // Trava knob de amp
+    } 
+    else {
+        // Nível 3: Tudo solto
+        target.freq = randomRange(3, 15); 
+        target.amp = randomRange(50, 150); 
+        target.phase = randomRange(10, 90);
+    }
+}
+
+function setupFilterLevel(lvl) {
+    slotAssignment = { 1: 'hpf', 2: 'lpf', 3: 'notch' };
+    
+    // Alvo Padrão para Filtros
+    target = { freq: 10, amp: 80, phase: 0, harmonics: 0.5 };
+    params.amp = target.amp; params.freq = target.freq; params.phase = target.phase;
+
+    if (lvl === 4) {
+        noiseConfig.drift = 60; noiseConfig.highFreq = 30;
+        disableSlot(3); // Trava Notch (não necessário)
+        params.hpf = 0.1; params.lpf = 10000;
+    }
+    else if (lvl === 5) {
+        noiseConfig.hum = 50; noiseConfig.drift = 20;
+        params.notch = false;
+        // Deixa HPF/LPF ativos mas com menos ruído pra focar no notch
+    }
+    else if (lvl === 6) {
+        noiseConfig.drift = 50; noiseConfig.highFreq = 40; noiseConfig.hum = 60;
+        // Tudo ativo
+    }
+    else if (lvl === 7) {
+        // MASTER CLASS: Harmônicas + Ruído Extremo
+        target.harmonics = 0.8; // Onda mais deformada
+        noiseConfig.drift = 80; 
+        noiseConfig.highFreq = 60; 
+        noiseConfig.hum = 80;
+        // Todos os knobs ativos (padrão)
+    }
+}
+
+function disableSlot(n) {
+    slots[n].grp.classList.add('knob-disabled');
+}
+
+function updateUI() {
+    for (let i = 1; i <= 3; i++) {
+        const paramName = slotAssignment[i];
+        const def = KNOB_DEFS[paramName];
+        // NOTA: Não removemos knob-disabled aqui, pois startLevel já configurou corretamente via disableSlot
+
+        if (def.type === 'switch') {
+            slots[i].contKnob.style.display = 'none';
+            if(slots[i].contSwitch) slots[i].contSwitch.style.display = 'flex';
+            slots[i].lbl.innerText = def.label;
+            slots[i].val.innerText = params[paramName] ? "ON" : "OFF";
+            updateSwitchVisual(i, params[paramName]);
+        } else {
+            slots[i].contKnob.style.display = 'block';
+            if(slots[i].contSwitch) slots[i].contSwitch.style.display = 'none';
+            slots[i].lbl.innerText = def.label;
+            updateKnobVisual(i, paramName);
+        }
+    }
+}
+
+function updateSwitchVisual(slotIdx, isOn) {
+    const el = slots[slotIdx].switch;
+    if (isOn) el.classList.add('toggle-active'); else el.classList.remove('toggle-active');
+}
+
+function updateKnobVisual(slotIdx, paramName) {
+    const def = KNOB_DEFS[paramName];
+    const val = params[paramName];
+    let percent = (val - def.min) / (def.max - def.min);
+    const deg = -135 + (percent * 270);
+    slots[slotIdx].ind.style.transform = `translate(-50%, -100%) rotate(${deg}deg)`;
+    
+    let txt = val;
+    if (paramName === 'lpf') txt = (val < 1000) ? val : (val/1000).toFixed(1) + 'k';
+    else txt = Math.round(val);
+    slots[slotIdx].val.innerText = txt + def.unit;
+}
+
+// --- INPUTS ---
+[1, 2, 3].forEach(i => {
+    const el = slots[i].el;
+    let startY = 0; let startVal = 0;
+    
+    const move = (e) => {
+        const paramName = slotAssignment[i];
+        // Bloqueio físico se estiver desabilitado
+        if (KNOB_DEFS[paramName].type === 'switch' || slots[i].grp.classList.contains('knob-disabled')) return;
+        
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        const def = KNOB_DEFS[paramName];
+        const sensitivity = (def.max - def.min) / 200;
+        let newVal = startVal + ((startY - y) * sensitivity);
+        newVal = Math.max(def.min, Math.min(def.max, newVal));
+        
+        params[paramName] = newVal;
+        updateKnobVisual(i, paramName);
+    };
+
+    const start = (y) => {
+        const paramName = slotAssignment[i];
+        if (KNOB_DEFS[paramName].type === 'switch') return;
+        startY = y; startVal = params[paramName];
+        window.addEventListener('mousemove', move);
+        window.addEventListener('touchmove', move, {passive:false});
+        window.addEventListener('mouseup', end);
+        window.addEventListener('touchend', end);
+    };
+
+    const end = () => {
+        window.removeEventListener('mousemove', move); window.removeEventListener('touchmove', move);
+        window.removeEventListener('mouseup', end); window.removeEventListener('touchend', end);
+        if(window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.selectionChanged();
+    };
+
+    el.addEventListener('mousedown', e => start(e.clientY));
+    el.addEventListener('touchstart', e => start(e.touches[0].clientY), {passive:false});
+});
+
+if(slots[3].switch) slots[3].switch.addEventListener('click', () => {
+    const paramName = slotAssignment[3];
+    if (KNOB_DEFS[paramName].type === 'switch' && !slots[3].grp.classList.contains('knob-disabled')) {
+        params[paramName] = !params[paramName];
+        slots[3].val.innerText = params[paramName] ? "ON" : "OFF";
+        updateSwitchVisual(3, params[paramName]);
+        if(window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.selectionChanged();
+    }
+});
+
+// --- LOOP ---
+function loop() {
+    if (!isPlaying) { window.animationFrameId = null; return; }
+    window.animationFrameId = requestAnimationFrame(loop);
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const w = canvas.width; const h = canvas.height; const cy = h/2;
+    drawGrid(w, h);
+
+    let totalDiff = 0;
+    let samples = 100;
+
+    for(let i=0; i<samples; i++) {
+        let x = (i/samples) * w; let t = x * 0.01;
+        let yTarget = waveSynth(t, target);
+        let yPlayer = (mode === 'SYNTH') ? waveSynth(t, params) : waveWithNoiseAndFilters(t, target, noiseConfig, params);
+        totalDiff += Math.abs(yTarget - yPlayer);
+    }
+
+    let avgDiff = totalDiff / samples;
+    let accuracy = Math.max(0, 100 - (avgDiff * 0.5)); 
+
+    if (accuracy > 90) { 
+        lockTimer++;
+        if (lockTimer % 30 === 0 && window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.selectionChanged();
+    } else {
+        lockTimer = Math.max(0, lockTimer - 2);
+    }
+
+    let lockPercent = Math.min(100, (lockTimer / 100) * 100); 
+    let noiseOpacity = Math.max(0.02, 0.3 - (accuracy / 200)); 
+    noiseCanvas.style.opacity = noiseOpacity;
+
+    if (accuracy > 90) {
+        statusBadge.innerText = `LOCKING... ${Math.floor(lockPercent)}%`;
+        statusBadge.classList.add('locked');
+    } else {
+        statusBadge.innerText = `SIGNAL ${Math.floor(accuracy)}%`;
+        statusBadge.classList.remove('locked');
+    }
+
+    if (lockTimer > 100) winLevel();
+
+    time += 0.05;
+    drawWave(ctx, w, cy, (t) => waveSynth(t, target), 'rgba(0, 255, 157, 0.2)', 4);
+    let playerColor = accuracy > 90 ? '#00ff9d' : '#ff3366';
+    let func = (mode === 'SYNTH') ? (t) => waveSynth(t, params) : (t) => waveWithNoiseAndFilters(t, target, noiseConfig, params);
+    drawWave(ctx, w, cy, func, playerColor, 3);
+}
+
+function waveSynth(t, p) {
+    let rad = (p.phase / 100) * (Math.PI * 2);
+    let y = p.amp * Math.sin((p.freq * 0.5) * t + rad);
+    if (p.harmonics > 0) y += (p.amp * 0.5) * Math.sin((p.freq * 1.0) * t + rad);
+    return y;
+}
+
+function waveWithNoiseAndFilters(t, signalP, noiseC, filterP) {
+    let y = waveSynth(t, signalP);
+    // Drift (Baixa Freq) - Reduzido pelo HPF
+    let drift = noiseC.drift * Math.sin(t * 0.5 + time);
+    let hpfEff = Math.min(1, (filterP.hpf - 0.1) / 10);
+    y += drift * (1 - hpfEff);
+
+    // High Freq Noise - Reduzido pelo LPF
+    let noise = noiseC.highFreq * (Math.random() - 0.5);
+    let lpfEff = Math.max(0, 1 - (filterP.lpf / 5000));
+    y += noise * (1 - lpfEff);
+
+    // Hum - Reduzido pelo Notch
+    if (!filterP.notch && noiseC.hum > 0) y += noiseC.hum * Math.sin(t * 20 + time*10);
+    return y;
+}
+
+function drawWave(ctx, w, cy, func, color, lw) {
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.shadowBlur = 10; ctx.shadowColor = color;
+    for (let x = 0; x < w; x+=4) {
+        let val = func(x * 0.01);
+        if(x===0) ctx.moveTo(x, cy - val); else ctx.lineTo(x, cy - val);
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+}
+
+function drawGrid(w, h) {
+    ctx.beginPath(); ctx.strokeStyle = '#1a4030'; ctx.lineWidth = 1;
+    for(let x=0; x<w; x+=50) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for(let y=0; y<h; y+=50) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+    ctx.beginPath(); ctx.strokeStyle = '#2a6045'; ctx.lineWidth = 2;
+    ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+}
+
+function winLevel() {
+    isPlaying = false;
+    statusBadge.innerText = "SIGNAL ACQUIRED";
+    if(window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+    setTimeout(() => {
+        const modal = document.getElementById('modal-overlay');
+        modal.style.display = 'flex';
+        modal.innerHTML = `
+            <h1 style="color:#00ff9d; font-size: 3rem; margin:0;">SUCESSO</h1>
+            <p style="color:#fff; margin-bottom:30px;">Sinal calibrado.</p>
+            <button id="btn-next-level">PRÓXIMO NÍVEL</button>
+        `;
+        document.getElementById('btn-next-level').onclick = () => showBriefing(currentLevel + 1);
+    }, 500);
+}
+
+function resize() {
+    canvas.width = document.getElementById('scope-container').clientWidth;
+    canvas.height = document.getElementById('scope-container').clientHeight;
+    noiseCanvas.width = window.innerWidth + 100; noiseCanvas.height = window.innerHeight + 100;
+    initNoise();
+}
+window.addEventListener('resize', resize);
+function randomRange(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+resize(); initNoise(); animateNoise(); showBriefing(1);
+
+</script>
+</body>
+</html>

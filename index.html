@@ -243,7 +243,7 @@
     <canvas id="noise-canvas" class="noise-layer"></canvas>
 
     <div id="header">
-        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.7 (Bio-Precision)</span></div>
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.8 (Calibrated)</span></div>
         <div id="status-badge" class="status-badge">NO SIGNAL</div>
     </div>
 
@@ -298,10 +298,10 @@
 
 <script>
 /**
- * KANDELA: SIGNAL-SYNC v3.7 (Bio-Precision)
- * - Level 8 Update: Target LPF 5kHz / HPF 20Hz.
- * - LPF > 7kHz adds high-freq noise ("Thick Trace").
- * - Physics tuned for EMG/EEG realism.
+ * KANDELA: SIGNAL-SYNC v3.8 (Calibrated)
+ * - Physics Tuning: Level 8 adjusted to pass at 20Hz/5kHz.
+ * - Adaptive Scoring: Lower penalty for stochastic signals (EMG/EEG).
+ * - Noise Floor: Reduced HF noise on lvl 8 to allow clean trace at 5k.
  */
 
 // --- SEGURANÇA ---
@@ -393,7 +393,7 @@ function showBriefing(lvl) {
         <p style="max-width: 80%; margin: 20px 0; color: #aaa;">${instr}</p>
         <div id="level-info" style="color: #fff; margin-bottom: 20px; font-weight: bold; border: 1px solid #333; padding: 10px;">${getLevelName(lvl)}</div>
         <button id="btn-start">INICIAR</button>
-        <div style="margin-top: 20px; font-size: 0.7rem; color: #444;">v3.7 (Bio-Precision)</div>
+        <div style="margin-top: 20px; font-size: 0.7rem; color: #444;">v3.8 (Calibrated)</div>
     `;
     document.getElementById('btn-start').onclick = () => startLevel(lvl);
 }
@@ -489,17 +489,17 @@ function setupFilterLevel(lvl) {
         noiseConfig.drift = 80; noiseConfig.highFreq = 60; noiseConfig.hum = 80;
     }
     else if (lvl === 8) {
-        // EMG REALISTA - AJUSTE v3.7
+        // EMG REALISTA - AJUSTE v3.8
         signalType = 'EMG';
         target.amp = 70;
         
-        // Ruídos de base (leve)
+        // Ruídos
         noiseConfig.drift = 30; 
-        noiseConfig.highFreq = 10; 
+        noiseConfig.highFreq = 5; // Reduzido de 10 para facilitar lock no sweet spot
         
-        disableSlot(3); // Notch opcional/desativado
+        disableSlot(3); 
         
-        // Player começa com filtros ruins
+        // Start
         params.hpf = 0.1; 
         params.lpf = 100; 
     }
@@ -612,7 +612,7 @@ if(slots[3].switch) slots[3].switch.addEventListener('click', () => {
     }
 });
 
-// --- LOOP & PHYSICS v3.7 ---
+// --- LOOP & PHYSICS v3.8 ---
 function loop() {
     if (!isPlaying) { window.animationFrameId = null; return; }
     window.animationFrameId = requestAnimationFrame(loop);
@@ -634,7 +634,11 @@ function loop() {
     let avgDiff = totalDiff / samples;
     let signalAmp = target.amp || 50;
     let errorRatio = avgDiff / signalAmp; 
-    let accuracy = Math.max(0, 100 - (errorRatio * 100 * 5.0)); 
+    
+    // AJUSTE DE PONTUAÇÃO
+    // Sinais biológicos são mais perdoáveis
+    let penaltyFactor = (signalType === 'EMG' || signalType === 'EEG') ? 3.0 : 5.0;
+    let accuracy = Math.max(0, 100 - (errorRatio * 100 * penaltyFactor)); 
 
     if (accuracy > 95) { 
         lockTimer++;
@@ -688,8 +692,11 @@ function applyPhysics(t, signalP, noiseC, filterP, type) {
     let y = generateSignal(t, signalP, type);
     
     if (type === 'EMG') {
-        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 3000)); 
+        // EMG Penalty: Se LPF < 4000, perde sinal. 
+        // Em 5000 é seguro.
+        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 4000)); 
         y *= (1 - lpfPenalty);
+        
         let hpfPenalty = Math.max(0, (filterP.hpf - 100) / 100); 
         y *= Math.max(0, 1 - hpfPenalty);
     }
@@ -700,7 +707,9 @@ function applyPhysics(t, signalP, noiseC, filterP, type) {
     }
 
     let driftAmp = noiseC.drift * Math.sin(t * 0.3 + time);
-    let hpfClean = Math.min(1, filterP.hpf / 20); 
+    // HPF 20Hz limpa completamente o drift (fator 20.0)
+    // Se filterP.hpf = 20, hpfClean = 1.0
+    let hpfClean = Math.min(1, filterP.hpf / 20.0); 
     y += driftAmp * (1 - hpfClean);
 
     let noiseVal = noiseC.highFreq * Math.sin(t * 50 + Math.random());

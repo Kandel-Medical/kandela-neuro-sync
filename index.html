@@ -243,7 +243,7 @@
     <canvas id="noise-canvas" class="noise-layer"></canvas>
 
     <div id="header">
-        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.5 (Strict)</span></div>
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.6 (Pro)</span></div>
         <div id="status-badge" class="status-badge">NO SIGNAL</div>
     </div>
 
@@ -298,10 +298,10 @@
 
 <script>
 /**
- * KANDELA: SIGNAL-SYNC v3.5 (Strict Physics)
- * - Penalidade de Pontuação severa para desalinhamentos.
- * - Filtros Ativos: Configuração errada degrada o sinal alvo.
- * - Morfologia: EMG (Burst stochastic) e EEG (Slow waves) gerados matematicamente.
+ * KANDELA: SIGNAL-SYNC v3.6 (Pro Physics)
+ * - LPF Max Range: 10kHz
+ * - EMG Physics: Adjusted to punish low LPF (< 4kHz)
+ * - Level 5: LPF disabled to focus on Notch
  */
 
 // --- SEGURANÇA ---
@@ -336,17 +336,16 @@ let isPlaying = false;
 let lockTimer = 0;
 let currentLevel = 1;
 let mode = 'SYNTH'; 
-let signalType = 'SINE'; // SINE, EMG, EEG
+let signalType = 'SINE'; 
 
 // Knobs Defs
 const KNOB_DEFS = {
     amp:   { label: 'GAIN', min: 10, max: 200, step: 1, unit: ' uV' },
     freq:  { label: 'FREQ', min: 1, max: 50, step: 0.5, unit: ' Hz' },
     phase: { label: 'FASE', min: 0, max: 100, step: 1, unit: ' ms' },
-    // HPF range expandido para acomodar EMG (20Hz) e EEG (1Hz)
     hpf:   { label: 'HP FILTER', min: 0.1, max: 50, step: 0.1, unit: ' Hz' }, 
-    // LPF range expandido
-    lpf:   { label: 'LP FILTER', min: 30, max: 5000, step: 10, unit: ' Hz' },
+    // LPF range expandido para 10000 Hz (para EMG)
+    lpf:   { label: 'LP FILTER', min: 30, max: 10000, step: 10, unit: ' Hz' },
     notch: { label: 'NOTCH 60Hz', type: 'switch' }
 };
 
@@ -383,7 +382,7 @@ function showBriefing(lvl) {
     if (lvl === 7) { title = "MASTER CLASS"; instr = "Condições críticas: Sinal sujo + Harmônicas."; }
     if (lvl === 8) { 
         title = "ELETROMIOGRAFIA"; 
-        instr = "Sinal EMG (Rápido/Estocástico).<br>Alvo: <strong>HPF ~20Hz</strong> | <strong>LPF ~5000Hz</strong>.<br>Cuidado: Filtros errados apagam o sinal!"; 
+        instr = "Sinal EMG (Rápido/Estocástico).<br>Alvo: <strong>HPF ~20Hz</strong> | <strong>LPF ~5000Hz</strong>.<br>Cuidado: Filtros fechados demais apagam o sinal!"; 
     }
     if (lvl === 9) { 
         title = "ELETROENCEFALO"; 
@@ -425,7 +424,7 @@ function startLevel(lvl) {
     // Defaults
     params = { amp: 50, freq: 10, phase: 0, hpf: 0.1, lpf: 5000, notch: false };
     noiseConfig = { drift: 0, highFreq: 0, hum: 0 };
-    signalType = 'SINE'; // Padrão
+    signalType = 'SINE'; 
 
     if (lvl <= 3) {
         mode = 'SYNTH';
@@ -480,6 +479,7 @@ function setupFilterLevel(lvl) {
     else if (lvl === 5) {
         noiseConfig.hum = 50; noiseConfig.drift = 20;
         params.notch = false;
+        disableSlot(2); // Disable LPF to focus on Notch
     }
     else if (lvl === 6) {
         noiseConfig.drift = 50; noiseConfig.highFreq = 40; noiseConfig.hum = 60;
@@ -495,30 +495,28 @@ function setupFilterLevel(lvl) {
         
         // Ruído específico de EMG
         noiseConfig.drift = 40; // Linha de base suja
-        noiseConfig.hum = 0; // Sem hum no lvl 8 pra focar em filtros de banda
+        noiseConfig.hum = 0; 
         noiseConfig.highFreq = 20; 
         
         disableSlot(3); // Notch não é o foco aqui
         
         // Player começa errado
-        params.hpf = 0.1; // Muito baixo (vai ter drift)
-        params.lpf = 100; // MUITO BAIXO (vai matar o sinal EMG)
+        params.hpf = 0.1; 
+        params.lpf = 100; // MUITO BAIXO (matando sinal)
     }
     else if (lvl === 9) {
         // EEG REALISTA
         signalType = 'EEG';
         target.amp = 100;
         
-        noiseConfig.drift = 100; // Muito drift
-        noiseConfig.hum = 60; // Rede
-        noiseConfig.highFreq = 30; // EMG contaminando EEG
+        noiseConfig.drift = 100; 
+        noiseConfig.hum = 60; 
+        noiseConfig.highFreq = 30; 
         
-        // Player começa errado
-        params.hpf = 10; // Muito alto (mata ondas lentas)
-        params.lpf = 5000; // Muito alto (deixa passar ruído)
+        params.hpf = 10; 
+        params.lpf = 5000; 
     }
     
-    // No modo filtro, o player "herda" a amplitude ideal, mas ela será atenuada pelos filtros errados na função de onda
     params.amp = target.amp; 
 }
 
@@ -576,12 +574,11 @@ function updateKnobVisual(slotIdx, paramName) {
         
         const x = e.touches ? e.touches[0].clientX : e.clientX;
         const def = KNOB_DEFS[paramName];
-        const sensitivity = (def.max - def.min) / 200; // 200px width = full range
+        const sensitivity = (def.max - def.min) / 200; 
         
         let newVal = startVal + ((x - startX) * sensitivity);
         newVal = Math.max(def.min, Math.min(def.max, newVal));
         
-        // Snap para facilitar valores exatos
         if(def.step) newVal = Math.round(newVal / def.step) * def.step;
 
         params[paramName] = newVal;
@@ -628,44 +625,25 @@ function loop() {
     drawGrid(w, h);
 
     let totalDiff = 0;
-    let samples = 150; // Mais samples para precisão
+    let samples = 150; 
 
     for(let i=0; i<samples; i++) {
         let x = (i/samples) * w; let t = x * 0.01;
-        
-        // No modo Synth, Target é a referência pura. 
-        // No modo Filter, Target é o sinal puro ideal (que o player deve alcançar limpando o ruído)
         let yTarget = generateSignal(t, target, signalType);
-        
-        // Player
-        let yPlayer = 0;
-        if (mode === 'SYNTH') {
-            yPlayer = generateSignal(t, params, signalType);
-        } else {
-            // Aplica ruído e FILTROS ATIVOS (que podem degradar o sinal)
-            yPlayer = applyPhysics(t, target, noiseConfig, params, signalType);
-        }
-
-        // Diferença Absoluta
+        let yPlayer = (mode === 'SYNTH') ? generateSignal(t, params, signalType) : applyPhysics(t, target, noiseConfig, params, signalType);
         totalDiff += Math.abs(yTarget - yPlayer);
     }
 
     let avgDiff = totalDiff / samples;
-    
-    // PONTUAÇÃO ESTRITA (V3.5)
-    // Normalizamos o erro pela amplitude do sinal para ser justo
     let signalAmp = target.amp || 50;
     let errorRatio = avgDiff / signalAmp; 
-    
-    // Se erro for > 10% da amplitude, score cai rápido.
-    // Multiplicador alto (5.0) penaliza desvios pequenos.
     let accuracy = Math.max(0, 100 - (errorRatio * 100 * 5.0)); 
 
     if (accuracy > 95) { 
         lockTimer++;
         if (lockTimer % 30 === 0 && window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.selectionChanged();
     } else {
-        lockTimer = Math.max(0, lockTimer - 3); // Perde lock mais rápido
+        lockTimer = Math.max(0, lockTimer - 3); 
     }
 
     let lockPercent = Math.min(100, (lockTimer / 100) * 100); 
@@ -676,7 +654,6 @@ function loop() {
         statusBadge.innerText = `LOCKING... ${Math.floor(lockPercent)}%`;
         statusBadge.classList.add('locked');
     } else {
-        // Cor do texto baseada na proximidade
         statusBadge.innerText = `SINAL ${Math.floor(accuracy)}%`;
         statusBadge.classList.remove('locked');
     }
@@ -685,98 +662,62 @@ function loop() {
 
     time += 0.05;
     
-    // Desenha Fantasma (Target Ideal)
     drawWave(ctx, w, cy, (t) => generateSignal(t, target, signalType), 'rgba(0, 255, 157, 0.2)', 4);
-    
-    // Desenha Player (Active)
     let playerColor = accuracy > 95 ? '#00ff9d' : '#ff3366';
-    let func = (mode === 'SYNTH') ? 
-        (t) => generateSignal(t, params, signalType) : 
-        (t) => applyPhysics(t, target, noiseConfig, params, signalType);
-        
+    let func = (mode === 'SYNTH') ? (t) => generateSignal(t, params, signalType) : (t) => applyPhysics(t, target, noiseConfig, params, signalType);
     drawWave(ctx, w, cy, func, playerColor, 3);
 }
 
-// Gerador de Sinal Puro (Matemático)
 function generateSignal(t, p, type) {
     let rad = (p.phase / 100) * (Math.PI * 2);
-    
     if (type === 'EMG') {
-        // EMG Simulado: Ruído modulado por senoides (Bursts)
-        // Frequency p.freq controla a taxa de disparo dos bursts
-        let carrier = Math.sin((p.freq * 0.5) * t + rad); // Envelope lento
-        // Ruído de alta freq modulado pelo envelope
-        // Usamos senoide de altissima freq como pseudo-random determinístico para estabilidade visual
+        let carrier = Math.sin((p.freq * 0.5) * t + rad); 
         let noise = Math.sin(t * 30) * Math.cos(t * 13 + rad); 
         return p.amp * carrier * noise;
     } 
     else if (type === 'EEG') {
-        // EEG Simulado: Soma de ondas lentas
         let delta = Math.sin((p.freq * 0.2) * t + rad);
         let theta = 0.5 * Math.sin((p.freq * 0.5) * t + rad + 1);
         return p.amp * (delta + theta);
     }
     else {
-        // SINE (Padrão)
         let y = p.amp * Math.sin((p.freq * 0.5) * t + rad);
         if (p.harmonics > 0) y += (p.amp * 0.5) * Math.sin((p.freq * 1.0) * t + rad);
         return y;
     }
 }
 
-// Simulador de Física de Filtros e Ruído
 function applyPhysics(t, signalP, noiseC, filterP, type) {
-    // 1. Sinal Original (Base)
     let y = generateSignal(t, signalP, type);
     
-    // 2. APLICAÇÃO DE FILTROS NO SINAL (Onda Útil) - O Pulo do Gato!
-    // Se os filtros estiverem errados, eles comem o sinal bom.
-    
     if (type === 'EMG') {
-        // EMG é rápido (Alta freq). LPF não pode ser baixo.
-        // Se LPF < 1000Hz, degrada EMG severamente.
-        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 1000)); // Abaixo de 1k, penaliza
+        // EMG: LPF abaixo de 4000Hz começa a comer sinal forte
+        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 4000)); 
         y *= (1 - lpfPenalty);
         
-        // HPF muito alto (> 100Hz) começa a comer EMG também
         let hpfPenalty = Math.max(0, (filterP.hpf - 100) / 100); 
         y *= Math.max(0, 1 - hpfPenalty);
     }
     
     if (type === 'EEG') {
-        // EEG é lento (Baixa freq). HPF não pode ser alto.
-        // Se HPF > 3Hz, degrada EEG severamente.
-        // Escala logica: 0.1 a 50Hz.
-        // Se hpf = 1, ok. Se hpf = 5, sinal some.
         let hpfPenalty = Math.min(1, Math.max(0, (filterP.hpf - 1) / 5)); 
         y *= (1 - hpfPenalty);
     }
 
-    // 3. Adição de Ruídos (Atenuados pelos filtros corretos)
-    
-    // Drift (Baixa Freq) -> HPF remove
-    // Drift só passa se HPF for muito baixo (< 1Hz)
-    // Para EMG, HPF deve ser ~20Hz. Se for 0.1, Drift passa.
+    // Noise Application
     let driftAmp = noiseC.drift * Math.sin(t * 0.3 + time);
-    // Eficiência do HPF contra drift:
-    // Se HPF > 5Hz, limpa drift totalmente.
     let hpfClean = Math.min(1, filterP.hpf / 5); 
     y += driftAmp * (1 - hpfClean);
 
-    // High Freq Noise -> LPF remove
-    // Ruído HF passa se LPF for muito alto.
-    // Para EEG, LPF deve ser ~70Hz. Se for 5000, Ruído passa.
     let noiseVal = noiseC.highFreq * Math.sin(t * 50 + Math.random());
-    // Eficiência LPF: Se LPF < 100Hz, limpa bem o HF noise do EEG.
-    // Se LPF < 5000Hz, limpa o HF noise extremo do EMG.
-    // Simplificação visual:
     let lpfClean = 0;
-    if (type === 'EEG') lpfClean = Math.max(0, 1 - (filterP.lpf / 100)); // Precisa LPF baixo
-    else lpfClean = Math.max(0, 1 - (filterP.lpf / 8000)); // EMG tolera LPF alto
+    
+    if (type === 'EEG') lpfClean = Math.max(0, 1 - (filterP.lpf / 100)); 
+    // EMG: Sweet spot em 5000Hz. Se > 6000Hz, começa a entrar muito ruído.
+    else lpfClean = Math.max(0, 1 - (filterP.lpf / 12000)); 
     
     y += noiseVal * (1 - lpfClean);
 
-    // Hum (60Hz) -> Notch remove
     if (!filterP.notch && noiseC.hum > 0) {
         y += noiseC.hum * Math.sin(t * 20 + time*10);
     }

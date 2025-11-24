@@ -243,7 +243,7 @@
     <canvas id="noise-canvas" class="noise-layer"></canvas>
 
     <div id="header">
-        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.6 (Pro)</span></div>
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v3.7 (Bio-Precision)</span></div>
         <div id="status-badge" class="status-badge">NO SIGNAL</div>
     </div>
 
@@ -298,10 +298,10 @@
 
 <script>
 /**
- * KANDELA: SIGNAL-SYNC v3.6 (Pro Physics)
- * - LPF Max Range: 10kHz
- * - EMG Physics: Adjusted to punish low LPF (< 4kHz)
- * - Level 5: LPF disabled to focus on Notch
+ * KANDELA: SIGNAL-SYNC v3.7 (Bio-Precision)
+ * - Level 8 Update: Target LPF 5kHz / HPF 20Hz.
+ * - LPF > 7kHz adds high-freq noise ("Thick Trace").
+ * - Physics tuned for EMG/EEG realism.
  */
 
 // --- SEGURANÇA ---
@@ -344,7 +344,6 @@ const KNOB_DEFS = {
     freq:  { label: 'FREQ', min: 1, max: 50, step: 0.5, unit: ' Hz' },
     phase: { label: 'FASE', min: 0, max: 100, step: 1, unit: ' ms' },
     hpf:   { label: 'HP FILTER', min: 0.1, max: 50, step: 0.1, unit: ' Hz' }, 
-    // LPF range expandido para 10000 Hz (para EMG)
     lpf:   { label: 'LP FILTER', min: 30, max: 10000, step: 10, unit: ' Hz' },
     notch: { label: 'NOTCH 60Hz', type: 'switch' }
 };
@@ -382,11 +381,11 @@ function showBriefing(lvl) {
     if (lvl === 7) { title = "MASTER CLASS"; instr = "Condições críticas: Sinal sujo + Harmônicas."; }
     if (lvl === 8) { 
         title = "ELETROMIOGRAFIA"; 
-        instr = "Sinal EMG (Rápido/Estocástico).<br>Alvo: <strong>HPF ~20Hz</strong> | <strong>LPF ~5000Hz</strong>.<br>Cuidado: Filtros fechados demais apagam o sinal!"; 
+        instr = "Sinal EMG (Rápido).<br>Alvo: <strong>HPF 20Hz</strong> | <strong>LPF 5kHz</strong>.<br>Evite LPF > 7kHz para não 'engrossar' o traçado."; 
     }
     if (lvl === 9) { 
         title = "ELETROENCEFALO"; 
-        instr = "Sinal EEG (Lento/Ondular).<br>Alvo: <strong>HPF ~1Hz</strong> | <strong>LPF ~70Hz</strong>.<br>Estabilize a linha de base."; 
+        instr = "Sinal EEG (Lento).<br>Alvo: <strong>HPF ~1Hz</strong> | <strong>LPF ~70Hz</strong>.<br>Estabilize a linha de base."; 
     }
     
     modal.innerHTML = `
@@ -394,20 +393,21 @@ function showBriefing(lvl) {
         <p style="max-width: 80%; margin: 20px 0; color: #aaa;">${instr}</p>
         <div id="level-info" style="color: #fff; margin-bottom: 20px; font-weight: bold; border: 1px solid #333; padding: 10px;">${getLevelName(lvl)}</div>
         <button id="btn-start">INICIAR</button>
+        <div style="margin-top: 20px; font-size: 0.7rem; color: #444;">v3.7 (Bio-Precision)</div>
     `;
     document.getElementById('btn-start').onclick = () => startLevel(lvl);
 }
 
 function getLevelName(lvl) {
-    if(lvl === 1) return "NÍVEL 1: Ganho (Fixo) & Fase";
+    if(lvl === 1) return "NÍVEL 1: Ganho & Fase";
     if(lvl === 2) return "NÍVEL 2: Frequência & Fase";
     if(lvl === 3) return "NÍVEL 3: Calibração Completa";
     if(lvl === 4) return "NÍVEL 4: High & Low Pass";
     if(lvl === 5) return "NÍVEL 5: Notch (Rede Elétrica)";
     if(lvl === 6) return "NÍVEL 6: Filtros Combinados";
     if(lvl === 7) return "NÍVEL 7: Master Class";
-    if(lvl === 8) return "NÍVEL 8: EMG (Alta Frequência)";
-    if(lvl === 9) return "NÍVEL 9: EEG (Baixa Frequência)";
+    if(lvl === 8) return "NÍVEL 8: EMG (Banda Larga)";
+    if(lvl === 9) return "NÍVEL 9: EEG (Banda Estreita)";
     return "NÍVEL " + lvl;
 }
 
@@ -479,7 +479,7 @@ function setupFilterLevel(lvl) {
     else if (lvl === 5) {
         noiseConfig.hum = 50; noiseConfig.drift = 20;
         params.notch = false;
-        disableSlot(2); // Disable LPF to focus on Notch
+        disableSlot(2); // Disable LPF
     }
     else if (lvl === 6) {
         noiseConfig.drift = 50; noiseConfig.highFreq = 40; noiseConfig.hum = 60;
@@ -489,26 +489,24 @@ function setupFilterLevel(lvl) {
         noiseConfig.drift = 80; noiseConfig.highFreq = 60; noiseConfig.hum = 80;
     }
     else if (lvl === 8) {
-        // EMG REALISTA
+        // EMG REALISTA - AJUSTE v3.7
         signalType = 'EMG';
         target.amp = 70;
         
-        // Ruído específico de EMG
-        noiseConfig.drift = 40; // Linha de base suja
-        noiseConfig.hum = 0; 
-        noiseConfig.highFreq = 20; 
+        // Ruídos de base (leve)
+        noiseConfig.drift = 30; 
+        noiseConfig.highFreq = 10; 
         
-        disableSlot(3); // Notch não é o foco aqui
+        disableSlot(3); // Notch opcional/desativado
         
-        // Player começa errado
+        // Player começa com filtros ruins
         params.hpf = 0.1; 
-        params.lpf = 100; // MUITO BAIXO (matando sinal)
+        params.lpf = 100; 
     }
     else if (lvl === 9) {
         // EEG REALISTA
         signalType = 'EEG';
         target.amp = 100;
-        
         noiseConfig.drift = 100; 
         noiseConfig.hum = 60; 
         noiseConfig.highFreq = 30; 
@@ -563,7 +561,7 @@ function updateKnobVisual(slotIdx, paramName) {
     slots[slotIdx].val.innerText = txt + def.unit;
 }
 
-// --- INPUTS (HORIZONTAL SWIPE) ---
+// --- INPUTS ---
 [1, 2, 3].forEach(i => {
     const el = slots[i].el;
     let startX = 0; let startVal = 0;
@@ -578,7 +576,6 @@ function updateKnobVisual(slotIdx, paramName) {
         
         let newVal = startVal + ((x - startX) * sensitivity);
         newVal = Math.max(def.min, Math.min(def.max, newVal));
-        
         if(def.step) newVal = Math.round(newVal / def.step) * def.step;
 
         params[paramName] = newVal;
@@ -615,7 +612,7 @@ if(slots[3].switch) slots[3].switch.addEventListener('click', () => {
     }
 });
 
-// --- LOOP & MATEMÁTICA ---
+// --- LOOP & PHYSICS v3.7 ---
 function loop() {
     if (!isPlaying) { window.animationFrameId = null; return; }
     window.animationFrameId = requestAnimationFrame(loop);
@@ -691,10 +688,8 @@ function applyPhysics(t, signalP, noiseC, filterP, type) {
     let y = generateSignal(t, signalP, type);
     
     if (type === 'EMG') {
-        // EMG: LPF abaixo de 4000Hz começa a comer sinal forte
-        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 4000)); 
+        let lpfPenalty = Math.max(0, 1 - (filterP.lpf / 3000)); 
         y *= (1 - lpfPenalty);
-        
         let hpfPenalty = Math.max(0, (filterP.hpf - 100) / 100); 
         y *= Math.max(0, 1 - hpfPenalty);
     }
@@ -704,16 +699,19 @@ function applyPhysics(t, signalP, noiseC, filterP, type) {
         y *= (1 - hpfPenalty);
     }
 
-    // Noise Application
     let driftAmp = noiseC.drift * Math.sin(t * 0.3 + time);
-    let hpfClean = Math.min(1, filterP.hpf / 5); 
+    let hpfClean = Math.min(1, filterP.hpf / 20); 
     y += driftAmp * (1 - hpfClean);
 
     let noiseVal = noiseC.highFreq * Math.sin(t * 50 + Math.random());
-    let lpfClean = 0;
     
+    if (type === 'EMG' && filterP.lpf > 7000) {
+        let extraNoise = (filterP.lpf - 7000) / 3000; 
+        noiseVal += 20 * extraNoise * Math.cos(t * 80);
+    }
+
+    let lpfClean = 0;
     if (type === 'EEG') lpfClean = Math.max(0, 1 - (filterP.lpf / 100)); 
-    // EMG: Sweet spot em 5000Hz. Se > 6000Hz, começa a entrar muito ruído.
     else lpfClean = Math.max(0, 1 - (filterP.lpf / 12000)); 
     
     y += noiseVal * (1 - lpfClean);

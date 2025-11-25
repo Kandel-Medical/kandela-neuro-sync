@@ -352,16 +352,16 @@
  */
 
 // --- SEGURANÇA ---
-// (function() {
-//     const tg = window.Telegram.WebApp;
-//     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-//     const isTelegram = tg.initData && tg.initData.length > 0;
-//     if (!isTelegram && !isLocal) {
-//         document.getElementById('access-denied').style.display = 'flex';
-//         throw new Error("Access Denied");
-//     }
-//     if(isTelegram) tg.expand();
-// })();
+(function() {
+    const tg = window.Telegram.WebApp;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isTelegram = tg.initData && tg.initData.length > 0;
+    if (!isTelegram && !isLocal) {
+        document.getElementById('access-denied').style.display = 'flex';
+        throw new Error("Access Denied");
+    }
+    if(isTelegram) tg.expand();
+})();
 
 // --- CONFIGURAÇÃO ---
 const canvas = document.getElementById('scope');

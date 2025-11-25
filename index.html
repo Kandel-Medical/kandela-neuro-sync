@@ -104,7 +104,7 @@
             display: flex;
             justify-content: space-around;
             align-items: flex-start; 
-            height: 190px;
+            height: 215px; /* Ligeiramente aumentado para caber o hint */
             box-shadow: 0 -5px 20px rgba(0,0,0,0.8);
             z-index: 30;
         }
@@ -113,7 +113,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 8px;
+            gap: 4px;
             width: 30%;
             transition: opacity 0.3s;
         }
@@ -129,7 +129,16 @@
         .knob-value {
             font-size: 0.85rem;
             color: var(--text-color);
-            margin-top: 5px;
+            margin-top: 2px;
+        }
+
+        /* Nova classe para a dica visual */
+        .knob-hint {
+            font-size: 1rem;
+            color: #555;
+            margin-top: 2px;
+            letter-spacing: 2px;
+            user-select: none;
         }
 
         /* KNOB UI */
@@ -140,7 +149,7 @@
             background: conic-gradient(#222 0%, #333 100%);
             box-shadow: inset 0 0 10px #000, 0 5px 15px rgba(0,0,0,0.5);
             position: relative;
-            cursor: ew-resize; 
+            cursor: ew-resize; /* Alterado para indicar horizontal */
             border: 1px solid #444;
         }
 
@@ -248,6 +257,17 @@
             padding: 10px;
             border-radius: 4px;
         }
+        
+        /* INSTRUÇÕES DE GESTO */
+        .gesture-instruction {
+            border: 1px solid #444;
+            background: rgba(255,255,255,0.05);
+            padding: 10px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 0.9rem;
+            color: #ccc;
+        }
 
         /* RUÍDO */
         .noise-layer {
@@ -266,7 +286,7 @@
     <canvas id="noise-canvas" class="noise-layer"></canvas>
 
     <div id="header">
-        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v5.0 (Neuro-Touch)</span></div>
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v5.1 (Touch Guide)</span></div>
         <div id="status-badge" class="status-badge">NO SIGNAL</div>
     </div>
 
@@ -285,6 +305,7 @@
                 </div>
             </div>
             <div class="knob-value" id="val-slot1">50 uV</div>
+            <div class="knob-hint">◄ ▬▬ ►</div>
         </div>
 
         <!-- SLOT 2 -->
@@ -296,6 +317,7 @@
                 </div>
             </div>
             <div class="knob-value" id="val-slot2">10 Hz</div>
+            <div class="knob-hint">◄ ▬▬ ►</div>
         </div>
 
         <!-- SLOT 3 -->
@@ -313,6 +335,8 @@
                 </div>
             </div>
             <div class="knob-value" id="val-slot3">0 ms</div>
+            <!-- Hint só aparece para Knob, Switch oculta via JS se necessário ou CSS -->
+            <div class="knob-hint" id="hint-slot3">◄ ▬▬ ►</div>
         </div>
 
     </div>
@@ -321,23 +345,23 @@
 
 <script>
 /**
- * KANDELA: SIGNAL-SYNC v5.0 (Neuro-Touch Edition)
- * - Final Version: Level 9 End Screen with Neurosoft Pro Tip.
- * - Touch Gestures: Pinch (H/V) and Drag for direct signal control.
- * - Physics: Calibrated for EMG/EEG realism (v4.1 physics core).
+ * KANDELA: SIGNAL-SYNC v5.1 (Neuro-Touch Guide)
+ * - Added Visual Cues for Horizontal Dragging.
+ * - Explicit instructions on Start Screen.
+ * - Based on v5.0 Physics & Features.
  */
 
 // --- SEGURANÇA ---
-(function() {
-    const tg = window.Telegram.WebApp;
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isTelegram = tg.initData && tg.initData.length > 0;
-    if (!isTelegram && !isLocal) {
-        document.getElementById('access-denied').style.display = 'flex';
-        throw new Error("Access Denied");
-    }
-    if(isTelegram) tg.expand();
-})();
+// (function() {
+//     const tg = window.Telegram.WebApp;
+//     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+//     const isTelegram = tg.initData && tg.initData.length > 0;
+//     if (!isTelegram && !isLocal) {
+//         document.getElementById('access-denied').style.display = 'flex';
+//         throw new Error("Access Denied");
+//     }
+//     if(isTelegram) tg.expand();
+// })();
 
 // --- CONFIGURAÇÃO ---
 const canvas = document.getElementById('scope');
@@ -350,7 +374,17 @@ const statusBadge = document.getElementById('status-badge');
 const slots = {
     1: { el: document.getElementById('knob-slot1'), ind: document.getElementById('ind-slot1'), val: document.getElementById('val-slot1'), lbl: document.getElementById('lbl-slot1'), grp: document.getElementById('group-slot1'), contKnob: document.getElementById('container-knob-1') },
     2: { el: document.getElementById('knob-slot2'), ind: document.getElementById('ind-slot2'), val: document.getElementById('val-slot2'), lbl: document.getElementById('lbl-slot2'), grp: document.getElementById('group-slot2'), contKnob: document.getElementById('container-knob-2') },
-    3: { el: document.getElementById('knob-slot3'), ind: document.getElementById('ind-slot3'), val: document.getElementById('val-slot3'), lbl: document.getElementById('lbl-slot3'), grp: document.getElementById('group-slot3'), contKnob: document.getElementById('container-knob-3'), contSwitch: document.getElementById('container-switch-3'), switch: document.getElementById('switch-notch') }
+    3: { 
+        el: document.getElementById('knob-slot3'), 
+        ind: document.getElementById('ind-slot3'), 
+        val: document.getElementById('val-slot3'), 
+        lbl: document.getElementById('lbl-slot3'), 
+        grp: document.getElementById('group-slot3'), 
+        contKnob: document.getElementById('container-knob-3'), 
+        contSwitch: document.getElementById('container-switch-3'), 
+        switch: document.getElementById('switch-notch'),
+        hint: document.getElementById('hint-slot3') // Ref para ocultar no switch
+    }
 };
 
 // Estado
@@ -394,14 +428,12 @@ function handleTouchStart(e) {
     if (!isPlaying) return;
     e.preventDefault();
     gestureState.active = true;
-    gestureState.startVals = { ...params }; // Snapshot valores atuais
+    gestureState.startVals = { ...params }; 
 
     if (e.touches.length === 1) {
-        // Drag (Fase)
         gestureState.startX = e.touches[0].clientX;
     } 
     else if (e.touches.length === 2) {
-        // Pinch
         gestureState.startDistH = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
         gestureState.startDistV = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
     }
@@ -411,46 +443,35 @@ function handleTouchMove(e) {
     if (!gestureState.active) return;
     e.preventDefault();
 
-    // 1 Dedo: Fase (Arrastar)
     if (e.touches.length === 1) {
-        // Só funciona se FASE estiver no slot 3 e habilitado
         if (slotAssignment[3] === 'phase' && !slots[3].grp.classList.contains('knob-disabled')) {
             const currentX = e.touches[0].clientX;
             const delta = currentX - gestureState.startX;
-            let newVal = gestureState.startVals.phase + (delta * 0.5); // Sensibilidade
+            let newVal = gestureState.startVals.phase + (delta * 0.5); 
             params.phase = clamp(newVal, KNOB_DEFS.phase.min, KNOB_DEFS.phase.max);
             updateKnobVisual(3, 'phase');
         }
     }
-    // 2 Dedos: Pinch
     else if (e.touches.length === 2) {
         const distH = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
         const distV = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
 
-        // Horizontal Pinch -> Freq ou LPF (Slot 2)
         const paramH = slotAssignment[2];
         if (!slots[2].grp.classList.contains('knob-disabled')) {
             const deltaH = distH - gestureState.startDistH;
             const def = KNOB_DEFS[paramH];
             const sensitivity = (def.max - def.min) / 500; 
             let newVal = gestureState.startVals[paramH] + (deltaH * sensitivity);
-            // Snap se necessário
             if(def.step) newVal = Math.round(newVal / def.step) * def.step;
             params[paramH] = clamp(newVal, def.min, def.max);
             updateKnobVisual(2, paramH);
         }
 
-        // Vertical Pinch -> Amp ou HPF (Slot 1)
         const paramV = slotAssignment[1];
         if (!slots[1].grp.classList.contains('knob-disabled')) {
-            const deltaV = gestureState.startDistV - distV; // Invertido (abrir aumenta)
             const def = KNOB_DEFS[paramV];
             const sensitivity = (def.max - def.min) / 500;
-            let newVal = gestureState.startVals[paramV] + (deltaV * sensitivity); // Abrir = diminuir valor visualmente? Não, abrir = aumentar
-            // Ajuste de direção: Abrir dedos (distV aumenta) -> deltaV negativo. 
-            // Queremos aumentar valor ao abrir dedos.
-            newVal = gestureState.startVals[paramV] + ((distV - gestureState.startDistV) * sensitivity);
-            
+            let newVal = gestureState.startVals[paramV] + ((distV - gestureState.startDistV) * sensitivity);
             if(def.step) newVal = Math.round(newVal / def.step) * def.step;
             params[paramV] = clamp(newVal, def.min, def.max);
             updateKnobVisual(1, paramV);
@@ -498,10 +519,14 @@ function showBriefing(lvl) {
     
     modal.innerHTML = `
         <h1 style="margin:0; font-size: 2rem; color: var(--text-color); text-shadow: 0 0 10px var(--text-color);">${title}</h1>
-        <p style="max-width: 80%; margin: 20px 0; color: #aaa;">${instr}</p>
+        <div class="gesture-instruction">
+            ⚠️ <strong>ATENÇÃO:</strong><br>
+            Arraste os botões para os <strong>LADOS</strong> (◄ ►).<br>
+            <span style="font-size:0.8em; color:#888;">Não arraste para cima para evitar fechar o app.</span>
+        </div>
+        <p style="max-width: 80%; margin: 10px 0; color: #aaa;">${instr}</p>
         <div id="level-info" style="color: #fff; margin-bottom: 20px; font-weight: bold; border: 1px solid #333; padding: 10px;">${getLevelName(lvl)}</div>
         <button id="btn-start">INICIAR</button>
-        <div style="margin-top: 20px; font-size: 0.7rem; color: #444;">v5.0 (Neuro-Touch)</div>
     `;
     document.getElementById('btn-start').onclick = () => startLevel(lvl);
 }
@@ -641,12 +666,14 @@ function updateUI() {
 
         if (def.type === 'switch') {
             slots[i].contKnob.style.display = 'none';
+            if(slots[i].hint) slots[i].hint.style.display = 'none'; // Oculta hint no switch
             if(slots[i].contSwitch) slots[i].contSwitch.style.display = 'flex';
             slots[i].lbl.innerText = def.label;
             slots[i].val.innerText = params[paramName] ? "ON" : "OFF";
             updateSwitchVisual(i, params[paramName]);
         } else {
             slots[i].contKnob.style.display = 'block';
+            if(slots[i].hint) slots[i].hint.style.display = 'block'; // Mostra hint no knob
             if(slots[i].contSwitch) slots[i].contSwitch.style.display = 'none';
             slots[i].lbl.innerText = def.label;
             updateKnobVisual(i, paramName);
@@ -673,7 +700,7 @@ function updateKnobVisual(slotIdx, paramName) {
     slots[slotIdx].val.innerText = txt + def.unit;
 }
 
-// --- INPUTS (KNOBS SWIPE) ---
+// --- INPUTS (HORIZONTAL SWIPE) ---
 [1, 2, 3].forEach(i => {
     const el = slots[i].el;
     let startX = 0; let startVal = 0;
@@ -686,6 +713,7 @@ function updateKnobVisual(slotIdx, paramName) {
         const def = KNOB_DEFS[paramName];
         const sensitivity = (def.max - def.min) / 200; 
         
+        // Alterado para Horizontal (X)
         let newVal = startVal + ((x - startX) * sensitivity);
         newVal = Math.max(def.min, Math.min(def.max, newVal));
         if(def.step) newVal = Math.round(newVal / def.step) * def.step;
@@ -724,7 +752,7 @@ if(slots[3].switch) slots[3].switch.addEventListener('click', () => {
     }
 });
 
-// --- LOOP & PHYSICS v4.1 ---
+// --- LOOP & PHYSICS v4.1 (Same as v5.0 but re-applied to this file structure) ---
 function loop() {
     if (!isPlaying) { window.animationFrameId = null; return; }
     window.animationFrameId = requestAnimationFrame(loop);

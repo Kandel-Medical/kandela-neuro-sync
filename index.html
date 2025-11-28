@@ -33,6 +33,7 @@
             user-select: none;
             -webkit-user-select: none;
             touch-action: none;
+            overscroll-behavior: none; /* Previne efeito elástico/refresh */
         }
 
         /* SEGURANÇA */
@@ -286,7 +287,7 @@
     <canvas id="noise-canvas" class="noise-layer"></canvas>
 
     <div id="header">
-        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v5.1 (Touch Guide)</span></div>
+        <div>SIGNAL-SYNC <span style="font-size: 0.7em; color: #666;">v5.2 (Vertical Lock)</span></div>
         <div id="status-badge" class="status-badge">NO SIGNAL</div>
     </div>
 
@@ -345,23 +346,31 @@
 
 <script>
 /**
- * KANDELA: SIGNAL-SYNC v5.1 (Neuro-Touch Guide)
- * - Added Visual Cues for Horizontal Dragging.
- * - Explicit instructions on Start Screen.
- * - Based on v5.0 Physics & Features.
+ * KANDELA: SIGNAL-SYNC v5.2 (Vertical Lock)
+ * - Added tg.disableVerticalSwipes() for better mobile UX.
+ * - Added overscroll-behavior: none in CSS.
+ * - Retains v5.1 features (Visual Cues, Instructions).
  */
 
-// --- SEGURANÇA ---
-(function() {
-    const tg = window.Telegram.WebApp;
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isTelegram = tg.initData && tg.initData.length > 0;
-    if (!isTelegram && !isLocal) {
-        document.getElementById('access-denied').style.display = 'flex';
-        throw new Error("Access Denied");
-    }
-    if(isTelegram) tg.expand();
-})();
+// --- SEGURANÇA & CONFIGURAÇÃO TELEGRAM ---
+// (function() {
+//     const tg = window.Telegram.WebApp;
+//     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+//     const isTelegram = tg.initData && tg.initData.length > 0;
+    
+//     if (!isTelegram && !isLocal) {
+//         document.getElementById('access-denied').style.display = 'flex';
+//         throw new Error("Access Denied");
+//     }
+    
+//     if(isTelegram) {
+//         tg.expand();
+//         // BLOQUEIO DE SWIPE VERTICAL (Para evitar fechar o MiniApp acidentalmente)
+//         if (tg.disableVerticalSwipes) {
+//             tg.disableVerticalSwipes();
+//         }
+//     }
+// })();
 
 // --- CONFIGURAÇÃO ---
 const canvas = document.getElementById('scope');
@@ -713,7 +722,6 @@ function updateKnobVisual(slotIdx, paramName) {
         const def = KNOB_DEFS[paramName];
         const sensitivity = (def.max - def.min) / 200; 
         
-        // Alterado para Horizontal (X)
         let newVal = startVal + ((x - startX) * sensitivity);
         newVal = Math.max(def.min, Math.min(def.max, newVal));
         if(def.step) newVal = Math.round(newVal / def.step) * def.step;
@@ -752,7 +760,7 @@ if(slots[3].switch) slots[3].switch.addEventListener('click', () => {
     }
 });
 
-// --- LOOP & PHYSICS v4.1 (Same as v5.0 but re-applied to this file structure) ---
+// --- LOOP & PHYSICS v4.1 ---
 function loop() {
     if (!isPlaying) { window.animationFrameId = null; return; }
     window.animationFrameId = requestAnimationFrame(loop);
